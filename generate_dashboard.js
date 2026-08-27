@@ -274,7 +274,7 @@ function card(s, kind) {
     : stateRow('Daily range (avg. move)', s.avgDailyMove != null ? `${fmtMoney(s.avgDailyMove)} (${s.avgDailyMovePct}% of price)` : 'n/a', 'flat');
   const highLabel = kind === 'crypto' ? '365d high' : '52w high';
 
-  return `<article class="card" data-signal="${s.signal}" data-earnings-soon="${isEarningsSoon(s)}">
+  return `<article class="card" data-signal="${s.signal}" data-earnings-soon="${isEarningsSoon(s)}" data-search="${esc((s.symbol + ' ' + s.name).toLowerCase())}">
     <header class="card-head">
       <div class="card-title">
         <span class="ticker">${esc(s.symbol)}</span>
@@ -325,7 +325,7 @@ function tableRow(s, kind) {
   const earningsCell = s.nextEarningsDate
     ? `${fmtShortDate(s.nextEarningsDate)} (${s.daysToEarnings}d)${isEarningsSoon(s) ? ' <span class="soon-flag">SOON</span>' : ''}`
     : 'n/a';
-  return `<tr data-signal="${s.signal}" data-earnings-soon="${isEarningsSoon(s)}">
+  return `<tr data-signal="${s.signal}" data-earnings-soon="${isEarningsSoon(s)}" data-search="${esc((s.symbol + ' ' + s.name).toLowerCase())}">
     <td class="tk">${esc(s.symbol)}</td>
     <td>${esc(s.name)}</td>
     <td class="num">${fmtMoney(s.price)}</td>
@@ -345,6 +345,7 @@ const STOCK_MANUAL_NOTES = [
   'You listed <strong>RTGI</strong>, which isn’t a listed ticker — swapped in <strong>RGTI</strong> (Rigetti Computing), the closest real match, shown below instead.',
   'You listed <strong>QA</strong>, which resolves to an empty exchange quote stub with no price/volume history — not a tradable equity ticker, so it was dropped.',
   'You listed <strong>QTBS</strong>, which isn’t a listed ticker either — swapped in <strong>QBTS</strong> (D‑Wave Quantum), the closest real match, shown below instead.',
+  'You listed <strong>SPXW</strong>, which is CBOE\'s root symbol for S&amp;P 500 Weekly index options, not a stock or ETF with its own price history — no listing exists to track, so it was dropped. <strong>SPY</strong> (already on this list) is the closest tradable proxy for S&amp;P 500 exposure.',
 ];
 const CRYPTO_MANUAL_NOTES = [];
 
@@ -380,6 +381,10 @@ function buildPanel(data, kind, opts) {
   </div>
 
   <div class="toolbar">
+    <div class="search-box">
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5"/><path d="M11.5 11.5L14.5 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <input type="search" data-ticker-search placeholder="Search ${esc(opts.symbolLabel.toLowerCase())} or name…" aria-label="Search by ${esc(opts.symbolLabel.toLowerCase())} or name">
+    </div>
     <div class="filters" role="group" aria-label="Filter by signal">
       <button class="chip active" data-filter="ALL">All (${ok.length})</button>
       <button class="chip" data-filter="BUY">Buy (${counts.BUY})</button>
@@ -389,6 +394,7 @@ function buildPanel(data, kind, opts) {
     </div>
     <button class="view-toggle" data-view-toggle>View as table</button>
   </div>
+  <div class="search-empty" data-search-empty hidden>No ${esc(opts.assetNoun.toLowerCase())} match that search.</div>
 
   <div class="grid" data-card-grid>
     ${cardsHtml}
@@ -616,8 +622,21 @@ const html = `<!doctype html>
   .stat-tile.hold .n { color: var(--warning); }
   .stat-tile.sell .n { color: var(--critical); }
 
-  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .search-box {
+    display: flex; align-items: center; gap: 7px; flex: 1 1 220px; max-width: 280px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 12px; color: var(--ink-muted);
+  }
+  .search-box:focus-within { border-color: var(--accent); color: var(--ink-secondary); }
+  .search-box input {
+    border: none; outline: none; background: transparent; color: var(--ink-primary);
+    font-family: var(--font-body); font-size: 13px; width: 100%;
+  }
+  .search-box input::placeholder { color: var(--ink-muted); }
+  .search-empty { font-size: 13px; color: var(--ink-muted); padding: 4px 2px 16px; font-style: italic; }
   .filters { display: flex; gap: 8px; flex-wrap: wrap; }
+  .view-toggle { margin-left: auto; }
   .chip {
     appearance: none; border: 1px solid var(--border); background: var(--surface);
     color: var(--ink-secondary); font-size: 13px; font-weight: 500; padding: 7px 14px; border-radius: 999px;
@@ -813,20 +832,40 @@ const html = `<!doctype html>
       var chips = panel.querySelectorAll('.chip');
       var cards = panel.querySelectorAll('[data-card-grid] .card');
       var rows = panel.querySelectorAll('tbody tr');
+      var searchInput = panel.querySelector('[data-ticker-search]');
+      var searchEmpty = panel.querySelector('[data-search-empty]');
+      var activeFilter = 'ALL';
+
+      function matchesFilter(el) {
+        if (activeFilter === 'ALL') return true;
+        if (activeFilter === 'EARNINGS_SOON') return el.getAttribute('data-earnings-soon') === 'true';
+        return el.getAttribute('data-signal') === activeFilter;
+      }
+
+      function applyFilters() {
+        var query = (searchInput.value || '').trim().toLowerCase();
+        var visibleCount = 0;
+        cards.forEach(function (card) {
+          var isMatch = matchesFilter(card) && (!query || card.getAttribute('data-search').indexOf(query) !== -1);
+          card.hidden = !isMatch;
+          if (isMatch) visibleCount++;
+        });
+        rows.forEach(function (row) {
+          var isMatch = matchesFilter(row) && (!query || row.getAttribute('data-search').indexOf(query) !== -1);
+          row.hidden = !isMatch;
+        });
+        searchEmpty.hidden = visibleCount !== 0 || !query;
+      }
+
       chips.forEach(function (chip) {
         chip.addEventListener('click', function () {
           chips.forEach(function (c) { c.classList.remove('active'); });
           chip.classList.add('active');
-          var f = chip.getAttribute('data-filter');
-          function matches(el) {
-            if (f === 'ALL') return true;
-            if (f === 'EARNINGS_SOON') return el.getAttribute('data-earnings-soon') === 'true';
-            return el.getAttribute('data-signal') === f;
-          }
-          cards.forEach(function (card) { card.hidden = !matches(card); });
-          rows.forEach(function (row) { row.hidden = !matches(row); });
+          activeFilter = chip.getAttribute('data-filter');
+          applyFilters();
         });
       });
+      searchInput.addEventListener('input', applyFilters);
 
       var viewToggle = panel.querySelector('[data-view-toggle]');
       var grid = panel.querySelector('[data-card-grid]');

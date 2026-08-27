@@ -3,7 +3,10 @@ const https = require('https');
 // RTGI has no listing on Yahoo (likely meant RGTI - Rigetti Computing); QA resolves to an
 // empty ECN quote stub with no OHLCV history, so it's dropped (flagged separately for the user).
 // QTBS has no listing either (likely meant QBTS - D-Wave Quantum).
-const TICKERS = ["AAPL","TSLA","NVDA","MSFT","MSTR","INTU","SMCI","MU","BE","QCOM","RGTI","MARA","GOOGL","CMG","NFLX","TTD","META","SPCX","HOOD","QS","INTC","BABA","SNDK","QBTS","QUBT"];
+// SPXW is CBOE's root symbol for S&P 500 Weekly index options, not an equity/ETF with its own
+// price history - no Yahoo listing exists for it, so it's dropped (flagged for the user); SPY
+// (already tracked) is the closest tradable proxy for S&P 500 exposure.
+const TICKERS = ["AAPL","TSLA","NVDA","MSFT","MSTR","INTU","SMCI","MU","BE","QCOM","RGTI","MARA","GOOGL","CMG","NFLX","TTD","META","SPCX","HOOD","QS","INTC","BABA","SNDK","QBTS","QUBT","WDAY","IREN","PLTR","CRM","AMD","BIDU","DKS","QQQ","SPY","RBLX","COIN","MRVL"];
 
 function fetchJson(url) {
   return new Promise((resolve, reject) => {
