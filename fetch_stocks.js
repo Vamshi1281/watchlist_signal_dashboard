@@ -6,7 +6,7 @@ const https = require('https');
 // SPXW is CBOE's root symbol for S&P 500 Weekly index options, not an equity/ETF with its own
 // price history - no Yahoo listing exists for it, so it's dropped (flagged for the user); SPY
 // (already tracked) is the closest tradable proxy for S&P 500 exposure.
-const TICKERS = ["AAPL","TSLA","NVDA","MSFT","MSTR","INTU","SMCI","MU","BE","QCOM","RGTI","MARA","GOOGL","CMG","NFLX","TTD","META","SPCX","HOOD","QS","INTC","BABA","SNDK","QBTS","QUBT","WDAY","IREN","PLTR","CRM","AMD","BIDU","DKS","QQQ","SPY","RBLX","COIN","MRVL"];
+const TICKERS = ["AAPL","TSLA","NVDA","MSFT","MSTR","INTU","SMCI","MU","BE","QCOM","RGTI","MARA","GOOGL","CMG","NFLX","TTD","META","SPCX","HOOD","QS","INTC","BABA","SNDK","QBTS","QUBT","WDAY","IREN","PLTR","CRM","AMD","BIDU","DKS","QQQ","SPY","RBLX","COIN","MRVL","MDB","AVGO","SNOW","ASAN","GTLB","AI","ZS","PATH","DOCU","FIVE","NIO","PANW"];
 
 function fetchJson(url) {
   return new Promise((resolve, reject) => {
