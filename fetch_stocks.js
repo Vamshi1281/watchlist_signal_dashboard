@@ -450,6 +450,43 @@ async function fetchOptionsChain(symbol, price, supportLevel, targetLevel, nowMs
     return pool.reduce((a, b) => (Math.abs(b.strike - targetStrike) < Math.abs(a.strike - targetStrike) ? b : a));
   }
 
+  // Options flow — today's put/call volume ratio and the single contract with the
+  // heaviest volume relative to its existing open interest (a proxy for "new money"
+  // opening a position today rather than routine trading of existing open contracts).
+  // Scoped to the two eligible expiries already shown on the card (near-term + monthly),
+  // not the whole chain, so it reflects the same contracts the user can actually see.
+  const flowPool = parsed.filter((p) => p.expiry === nearExpiry || p.expiry === monthlyExpiry);
+  let callVol = 0, putVol = 0;
+  for (const p of flowPool) {
+    const v = p.volume || 0;
+    if (p.type === 'C') callVol += v; else putVol += v;
+  }
+  const putCallVolumeRatio = callVol > 0 ? round2(putVol / callVol) : null;
+  let optionsFlowBias = 'neutral';
+  if (putCallVolumeRatio != null) {
+    if (putCallVolumeRatio < 0.7) optionsFlowBias = 'call-heavy';
+    else if (putCallVolumeRatio > 1.3) optionsFlowBias = 'put-heavy';
+  }
+
+  const MIN_NOTABLE_VOLUME = 300;
+  let notable = null, notableRatio = 0;
+  for (const p of flowPool) {
+    const oi = p.open_interest || 0;
+    const vol = p.volume || 0;
+    if (vol < MIN_NOTABLE_VOLUME) continue;
+    const ratio = vol / Math.max(1, oi);
+    if (ratio > notableRatio) { notableRatio = ratio; notable = p; }
+  }
+  const notableContract = notable && notableRatio >= 2 ? {
+    strike: notable.strike,
+    type: notable.type === 'C' ? 'call' : 'put',
+    expiry: notable.expiry,
+    dte: dte(notable.expiry),
+    volume: notable.volume,
+    openInterest: notable.open_interest || 0,
+    volOiRatio: round2(notableRatio),
+  } : null;
+
   return {
     optionsAsOfPrice: round2(price),
     nearTermCall: summarizeContract(closestByStrike(nearExpiry, 'C', price), nowMs),
@@ -458,6 +495,7 @@ async function fetchOptionsChain(symbol, price, supportLevel, targetLevel, nowMs
     monthlyPut: summarizeContract(closestByStrike(monthlyExpiry, 'P', price), nowMs),
     shortPutNearSupport: summarizeContract(closestByStrike(monthlyExpiry, 'P', supportLevel), nowMs),
     shortCallNearResistance: summarizeContract(closestByStrike(monthlyExpiry, 'C', targetLevel), nowMs),
+    putCallVolumeRatio, optionsFlowBias, notableContract,
   };
 }
 

@@ -224,6 +224,25 @@ function fmtContract(c, side) {
   </span>`;
 }
 
+const FLOW_LABEL = {
+  'call-heavy': 'Call-heavy — more volume trading calls than puts',
+  'put-heavy': 'Put-heavy — more volume trading puts than calls',
+  neutral: 'Balanced — no lopsided call/put volume today',
+};
+
+function optionsFlow(s) {
+  if (s.optionsError || s.putCallVolumeRatio == null) return '';
+  const dir = s.optionsFlowBias === 'call-heavy' ? 'up' : s.optionsFlowBias === 'put-heavy' ? 'down' : 'flat';
+  const notable = s.notableContract;
+  const notableLine = notable
+    ? `<div class="ind-row"><span class="ind-label">Unusual activity</span><span class="ind-value ${notable.type === 'call' ? 'is-good' : 'is-critical'}"><span class="dot ${notable.type === 'call' ? 'is-good' : 'is-critical'}"></span>$${notable.strike}${notable.type === 'call' ? 'C' : 'P'} ${fmtShortDate(notable.expiry)} &middot; vol ${notable.volume.toLocaleString()} vs OI ${notable.openInterest.toLocaleString()} (${notable.volOiRatio.toFixed(1)}&times;)</span></div>`
+    : `<div class="ind-row"><span class="ind-label">Unusual activity</span><span class="ind-value is-neutral">None above threshold today</span></div>`;
+  return `<div class="indicators options-flow">
+    ${stateRow('Options flow (P/C vol)', `${s.putCallVolumeRatio.toFixed(2)} — ${FLOW_LABEL[s.optionsFlowBias]}`, dir)}
+    ${notableLine}
+  </div>`;
+}
+
 function optionsAngle(s) {
   if (s.optionsError || (!s.nearTermCall && !s.nearTermPut)) {
     return `<div class="options-angle">
@@ -310,6 +329,7 @@ function card(s, kind) {
 
     ${tradeLevels(s)}
     ${expectedMovesBlock(s)}
+    ${kind === 'stock' ? optionsFlow(s) : ''}
     ${kind === 'stock' ? optionsAngle(s) : ''}
 
     ${kind === 'stock' ? `<div class="indicators earnings-block">${earningsBlock(s)}</div>` : ''}
@@ -453,6 +473,7 @@ const stockPanel = buildPanel(stocksData, 'stock', {
     `<div class="method-card"><h3>Volume flow — accumulation/distribution</h3><p>Compares 5‑day vs. 3‑month average volume, weighted by whether the heavier volume came on up days (accumulation — people stepping in) or down days (distribution — people exiting).</p></div>`,
     `<div class="method-card"><h3>Volatility — Bollinger Bands &amp; ATR‑14</h3><p>Bollinger (20, 2σ) shows price against its own recent volatility envelope — informational, not scored, since RSI already covers overbought/oversold. ATR‑14 (average true range) sizes the stop-loss below support instead of a flat percentage.</p></div>`,
     `<div class="method-card"><h3>Trade levels — support &amp; resistance</h3><p>Buy zone = nearest support below price (the higher of the 20‑session range low or the long moving average). Target = nearest resistance above price (20‑session range high, then the 52‑week high). Stop-loss = 1.5&times; ATR below the buy zone. Mechanical, not predictive — price can blow through any of these.</p></div>`,
+    `<div class="method-card"><h3>Options flow — put/call volume &amp; unusual activity</h3><p>Put/call volume ratio across the near-term and monthly expiries shown on the card — below 0.7 is call-heavy, above 1.3 is put-heavy. "Unusual activity" flags the single contract (min. 300 contracts today) with the highest volume-vs-open-interest ratio, a rough proxy for a position opened today rather than routine trading of an existing one. Real CBOE data; not a signal of who is trading or why.</p></div>`,
     `<div class="method-card"><h3>Earnings — context, not a score input</h3><p>Each card shows the next confirmed/estimated report date and the last quarter's EPS surprise. A stock within 14 days of reporting is flagged <span class="soon-flag">SOON</span> — technical signals are least reliable right before a print, since a beat or miss can gap the price straight through any trend line.</p></div>`,
   ],
 });
@@ -763,6 +784,7 @@ const html = `<!doctype html>
   .ind-value.is-warning { color: var(--warning); }
   .rsi-gauge { margin: -2px 0 2px; }
   .earnings-block { margin-top: 8px; padding-top: 8px; }
+  .options-flow { margin-top: 4px; padding-top: 8px; }
   .soon-flag {
     display: inline-block; font-family: var(--font-body); font-size: 9.5px; font-weight: 700;
     letter-spacing: 0.05em; color: #2b1d00; background: var(--warning-fill);
