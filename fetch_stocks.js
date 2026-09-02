@@ -450,24 +450,39 @@ async function fetchOptionsChain(symbol, price, supportLevel, targetLevel, nowMs
     return pool.reduce((a, b) => (Math.abs(b.strike - targetStrike) < Math.abs(a.strike - targetStrike) ? b : a));
   }
 
-  // Options flow — today's put/call volume ratio and the single contract with the
-  // heaviest volume relative to its existing open interest (a proxy for "new money"
-  // opening a position today rather than routine trading of existing open contracts).
-  // Scoped to the two eligible expiries already shown on the card (near-term + monthly),
-  // not the whole chain, so it reflects the same contracts the user can actually see.
-  const flowPool = parsed.filter((p) => p.expiry === nearExpiry || p.expiry === monthlyExpiry);
-  let callVol = 0, putVol = 0;
-  for (const p of flowPool) {
-    const v = p.volume || 0;
-    if (p.type === 'C') callVol += v; else putVol += v;
+  // Options flow. Two ratios, both over the FULL listed chain (every strike, every
+  // expiry, no DTE filtering) — this matches how "put/call ratio" is conventionally
+  // reported (e.g. CBOE's own total P/C ratio), unlike the earlier version of this
+  // dashboard which wrongly scoped it to just the two expiries shown on the card.
+  //   - Volume P/C ratio: today's trading only — noisy, moves fast, reflects the day's
+  //     activity level more than conviction.
+  //   - Open-interest P/C ratio: accumulated existing positions — slower-moving, a
+  //     steadier read on standing positioning.
+  // Neither ratio, nor anything else in this public CBOE snapshot feed, can say whether
+  // that volume was buying or selling, opening or closing, a directional bet or one leg
+  // of a hedge/spread — that requires a continuous intraday trade tape with the bid/ask
+  // at each print (the tick rule), which this feed does not provide. Don't oversell what
+  // this number means.
+  let callVol = 0, putVol = 0, callOi = 0, putOi = 0;
+  for (const p of parsed) {
+    const v = p.volume || 0, oi = p.open_interest || 0;
+    if (p.type === 'C') { callVol += v; callOi += oi; } else { putVol += v; putOi += oi; }
   }
   const putCallVolumeRatio = callVol > 0 ? round2(putVol / callVol) : null;
+  const putCallOiRatio = callOi > 0 ? round2(putOi / callOi) : null;
   let optionsFlowBias = 'neutral';
   if (putCallVolumeRatio != null) {
     if (putCallVolumeRatio < 0.7) optionsFlowBias = 'call-heavy';
     else if (putCallVolumeRatio > 1.3) optionsFlowBias = 'put-heavy';
   }
 
+  // "Unusual activity" — the single contract (within the two tradeable expiries shown
+  // on the card, min. 300 contracts today) with the heaviest volume relative to its
+  // existing open interest: a rough proxy for a position opened today rather than
+  // routine trading of an already-large existing position. Also notes whether the last
+  // print sat nearer the bid or ask — a crude, single-trade hint at aggressor side (NOT
+  // a classification of the day's cumulative flow — see caveat above).
+  const flowPool = parsed.filter((p) => p.expiry === nearExpiry || p.expiry === monthlyExpiry);
   const MIN_NOTABLE_VOLUME = 300;
   let notable = null, notableRatio = 0;
   for (const p of flowPool) {
@@ -477,6 +492,14 @@ async function fetchOptionsChain(symbol, price, supportLevel, targetLevel, nowMs
     const ratio = vol / Math.max(1, oi);
     if (ratio > notableRatio) { notableRatio = ratio; notable = p; }
   }
+  let lastPrintSide = null;
+  if (notable && notable.bid != null && notable.ask != null && notable.ask > notable.bid && notable.last_trade_price != null) {
+    const mid = (notable.bid + notable.ask) / 2;
+    const range = notable.ask - notable.bid;
+    if (notable.last_trade_price >= mid + range * 0.15) lastPrintSide = 'near-ask';
+    else if (notable.last_trade_price <= mid - range * 0.15) lastPrintSide = 'near-bid';
+    else lastPrintSide = 'mid';
+  }
   const notableContract = notable && notableRatio >= 2 ? {
     strike: notable.strike,
     type: notable.type === 'C' ? 'call' : 'put',
@@ -485,6 +508,7 @@ async function fetchOptionsChain(symbol, price, supportLevel, targetLevel, nowMs
     volume: notable.volume,
     openInterest: notable.open_interest || 0,
     volOiRatio: round2(notableRatio),
+    lastPrintSide,
   } : null;
 
   return {
@@ -495,7 +519,7 @@ async function fetchOptionsChain(symbol, price, supportLevel, targetLevel, nowMs
     monthlyPut: summarizeContract(closestByStrike(monthlyExpiry, 'P', price), nowMs),
     shortPutNearSupport: summarizeContract(closestByStrike(monthlyExpiry, 'P', supportLevel), nowMs),
     shortCallNearResistance: summarizeContract(closestByStrike(monthlyExpiry, 'C', targetLevel), nowMs),
-    putCallVolumeRatio, optionsFlowBias, notableContract,
+    putCallVolumeRatio, putCallOiRatio, optionsFlowBias, notableContract,
   };
 }
 
